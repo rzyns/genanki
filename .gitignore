@@ -108,3 +108,4 @@ venv.bak/
 
 # Used in testing
 /anki_upstream/
+monkeytype.sqlite3
