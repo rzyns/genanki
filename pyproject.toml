@@ -1,0 +1,65 @@
+#   install_requires=[
+#     'cached-property',
+#     'frozendict',
+#     'chevron',
+#     'pyyaml',
+#   ],
+#   setup_requires=[
+#       'pytest-runner',
+#   ],
+#   tests_require=[
+#       'pytest>=6.0.2',
+#   ],
+#   keywords=[
+#     'anki',
+#     'flashcards',
+#     'memorization',
+#   ])
+
+[project]
+name = "genanki"
+version = "0.13.1"
+description = "Generate Anki decks programmatically"
+# url = "http://github.com/kerrickstaley/genanki"
+# author="Kerrick Staley"
+# author_email="k@kerrickstaley.com"
+license={ file = "LICENSE.txt" }
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "anki>=24.6.3",
+    "chevron>=0.14.0",
+    "pydantic>=2.9.2",
+    "pyyaml>=6.0.2",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "basedpyright>=1.18.4",
+    "pytest-monkeytype>=1.1.0",
+    "pytest>=8.3.3",
+    "ruff>=0.6.9",
+]
+
+[tool.uv.scripts]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.basedpyright]
+typeCheckingMode = "strict"
+stubPath = "../../typings"
+reportPrivateUsage = false
+
+[tool.ruff.lint.extend-per-file-ignores]
+"tests/**/*.py" = [
+    "TRY002", "TRY003", "PLR0904"
+]
+
+[tool.pytest.ini_options]
+addopts = [
+    "-ra",
+    "--import-mode=importlib",
+]
+testpaths=["tests"]

@@ -1,4 +1,4 @@
-APKG_COL = r'''
+APKG_COL = r"""
 INSERT INTO col VALUES(
     null,
     1411124400,
@@ -104,4 +104,4 @@ INSERT INTO col VALUES(
     }',
     '{}'
 );
-'''
+"""
