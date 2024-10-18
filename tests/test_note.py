@@ -389,7 +389,9 @@ def test_furigana_field():
     with tempfile.NamedTemporaryFile(delete=False) as tempf:
         pass
 
-    my_deck.write_to_file(tempf.name)
+    pkg = genanki.Package(my_deck)
+
+    pkg.write_to_file(tempf.name)
     os.remove(tempf.name)
 
     # test passes if there is no exception

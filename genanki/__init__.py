@@ -4,7 +4,7 @@ from genanki.card import Card as Card
 from genanki.deck import Deck as Deck
 from genanki.model import Model as Model
 from genanki.note import Note as Note
-from genanki.deck import Package as Package
+from genanki.package import Package as Package
 
 from genanki.util import guid_for as guid_for
 

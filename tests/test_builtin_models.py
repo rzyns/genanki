@@ -54,8 +54,9 @@ def test_builtin_models():
     fnode, fpath = tempfile.mkstemp()
     os.close(fnode)
 
+    pkg = genanki.Package(my_deck)
     with warnings.catch_warnings(record=True) as warning_list:
-        my_deck.write_to_file(fpath)
+        pkg.write_to_file(fpath)
 
     assert not warning_list
 
@@ -75,7 +76,8 @@ def test_cloze_with_single_field_warns():
     fnode, fpath = tempfile.mkstemp()
     os.close(fnode)
 
+    pkg = genanki.Package(my_deck)
     with pytest.warns(DeprecationWarning):
-        my_deck.write_to_file(fpath)
+        pkg.write_to_file(fpath)
 
     os.unlink(fpath)

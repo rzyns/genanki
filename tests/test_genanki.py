@@ -157,7 +157,7 @@ def anki_collection(request: SubRequest) -> Generator[AnkiCollectionFixture]:
             os.unlink(colf.name)
 
 
-type ImportPackageFixture = Callable[[genanki.deck.Package, float | None], None]
+type ImportPackageFixture = Callable[[genanki.Package, float | None], None]
 
 
 @pytest.fixture(autouse=False, scope="function")
@@ -169,7 +169,7 @@ def import_package(
     ) as outf:
 
         def import_package_fn(
-            pkg: genanki.deck.Package, timestamp: float | None = None
+            pkg: genanki.Package, timestamp: float | None = None
         ):
             """
             Imports `pkg` into self.col.
@@ -447,8 +447,9 @@ def test_write_deck_without_deck_id_fails(anki_collection: AnkiCollectionFixture
     deck = genanki.Deck()
     deck.name = "foodeck"
 
+    pkg = genanki.Package(deck)
     with pytest.raises(TypeError):
-        deck.write_to_file("foodeck.apkg")
+        pkg.write_to_file("foodeck.apkg")
 
 
 def test_write_deck_without_name_fails(anki_collection: AnkiCollectionFixture):
@@ -458,8 +459,10 @@ def test_write_deck_without_name_fails(anki_collection: AnkiCollectionFixture):
     deck = genanki.Deck()
     deck.deck_id = anki.decks.DeckId(123456)
 
+    pkg = genanki.Package(deck)
+
     with pytest.raises(TypeError):
-        deck.write_to_file("foodeck.apkg")
+        pkg.write_to_file("foodeck.apkg")
 
 
 def test_card_suspend(
