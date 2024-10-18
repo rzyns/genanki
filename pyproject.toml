@@ -1,28 +1,13 @@
-#   install_requires=[
-#     'cached-property',
-#     'frozendict',
-#     'chevron',
-#     'pyyaml',
-#   ],
-#   setup_requires=[
-#       'pytest-runner',
-#   ],
-#   tests_require=[
-#       'pytest>=6.0.2',
-#   ],
-#   keywords=[
-#     'anki',
-#     'flashcards',
-#     'memorization',
-#   ])
-
 [project]
 name = "genanki"
-version = "0.13.1"
+version = "0.13.2"
 description = "Generate Anki decks programmatically"
-# url = "http://github.com/kerrickstaley/genanki"
 # author="Kerrick Staley"
 # author_email="k@kerrickstaley.com"
+authors = [
+    { name = "Kerrick Staley", email = "k@kerrickstaley.com" },
+    { name = "Janusz Dziurzyński", email = "janusz@forserial.org" },
+]
 license={ file = "LICENSE.txt" }
 readme = "README.md"
 requires-python = ">=3.13"
@@ -36,7 +21,6 @@ dependencies = [
 [tool.uv]
 dev-dependencies = [
     "basedpyright>=1.18.4",
-    "pytest-monkeytype>=1.1.0",
     "pytest>=8.3.3",
     "ruff>=0.6.9",
 ]
