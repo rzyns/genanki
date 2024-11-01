@@ -1,0 +1,20 @@
+{
+    "nextPos": 1,
+    "collapseTime": 1200,
+    "addToCur": true,
+    "sched2021": true,
+    "activeDecks": [
+        1
+    ],
+    "sortType": "noteFld",
+    "timeLim": 0,
+    "newSpread": 0,
+    "sortBackwards": false,
+    "creationOffset": 240,
+    "dayLearnFirst": false,
+    "curDeck": 1,
+    "estTimes": true,
+    "schedVer": 2,
+    "curModel": 1729308885613,
+    "dueCounts": true
+}

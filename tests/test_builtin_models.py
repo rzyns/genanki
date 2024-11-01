@@ -1,6 +1,5 @@
 import genanki
 import os
-import pytest
 import tempfile
 import warnings
 
@@ -11,41 +10,41 @@ DECK_ID = anki.decks.DeckId(1598559905)
 
 
 def test_builtin_models():
-    my_deck = genanki.Deck(DECK_ID, "Country Capitals")
+    my_deck = genanki.Deck(deck_id=DECK_ID, name="Country Capitals")
 
     my_deck.add_note(
-        genanki.Note(
-            model=genanki.BASIC_MODEL, fields=["Capital of Argentina", "Buenos Aires"]
+        genanki.Note[genanki.BASIC_MODEL.model_spec.fields](
+            model=genanki.BASIC_MODEL, fields=genanki.BASIC_MODEL.model_spec.fields(Front="Capital of Argentina", Back="Buenos Aires")
         )
     )
 
     my_deck.add_note(
-        genanki.Note(
+        genanki.Note[genanki.BASIC_AND_REVERSED_CARD_MODEL.model_spec.fields](
             model=genanki.BASIC_AND_REVERSED_CARD_MODEL,
-            fields=["Costa Rica", "San José"],
+            fields=genanki.BASIC_AND_REVERSED_CARD_MODEL.model_spec.fields(Front="Costa Rica", Back="San José"),
         )
     )
 
     my_deck.add_note(
-        genanki.Note(
+        genanki.Note[genanki.BASIC_OPTIONAL_REVERSED_CARD_MODEL.model_spec.fields](
             model=genanki.BASIC_OPTIONAL_REVERSED_CARD_MODEL,
-            fields=["France", "Paris", "y"],
+            fields=genanki.BASIC_OPTIONAL_REVERSED_CARD_MODEL.model_spec.fields(Front="France", Back="Paris", Add_Reverse="y"),
         )
     )
 
     my_deck.add_note(
-        genanki.Note(
-            model=genanki.BASIC_TYPE_IN_THE_ANSWER_MODEL, fields=["Taiwan", "Taipei"]
+        genanki.Note[genanki.BASIC_TYPE_IN_THE_ANSWER_MODEL.model_spec.fields](
+            model=genanki.BASIC_TYPE_IN_THE_ANSWER_MODEL, fields=genanki.BASIC_TYPE_IN_THE_ANSWER_MODEL.model_spec.fields(Front="Taiwan", Back="Taipei")
         )
     )
 
     my_deck.add_note(
-        genanki.Note(
+        genanki.Note[genanki.CLOZE_MODEL.model_spec.fields](
             model=genanki.CLOZE_MODEL,
-            fields=[
-                "{{c1::Ottawa}} is the capital of {{c2::Canada}}",
-                "Ottawa is in Ontario province.",
-            ],
+            fields=genanki.CLOZE_MODEL.model_spec.fields(
+                Text="{{c1::Ottawa}} is the capital of {{c2::Canada}}",
+                Back_Extra="Ottawa is in Ontario province.",
+            ),
         )
     )
 
@@ -59,25 +58,5 @@ def test_builtin_models():
         pkg.write_to_file(fpath)
 
     assert not warning_list
-
-    os.unlink(fpath)
-
-
-def test_cloze_with_single_field_warns():
-    my_deck = genanki.Deck(DECK_ID, "Country Capitals")
-
-    note = genanki.Note(
-        model=genanki.CLOZE_MODEL,
-        fields=["{{c1::Rome}} is the capital of {{c2::Italy}}"],
-    )
-
-    my_deck.add_note(note)
-
-    fnode, fpath = tempfile.mkstemp()
-    os.close(fnode)
-
-    pkg = genanki.Package(my_deck)
-    with pytest.warns(DeprecationWarning):
-        pkg.write_to_file(fpath)
 
     os.unlink(fpath)

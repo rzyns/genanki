@@ -1,17 +1,27 @@
-from typing import Literal, Required, TypedDict
+from collections.abc import Sequence
+import dataclasses
+from enum import Enum
+from typing import Any, Generic, Literal, NotRequired, TypeVar, TypedDict, dataclass_transform
+
+from pydantic import TypeAdapter, ValidationError
 
 import anki
 import anki.collection
 import anki.decks
 import anki.models
 
-import chevron
-import yaml
-import pydantic
+from anki.generic_pb2 import UInt32
+from anki import notetypes_pb2
+
+import attrs
 
 
-class Field(TypedDict, total=False):
-    name: Required[str]
+class ModelType(int, Enum):
+    FRONT_BACK = 0
+    CLOZE = 1
+
+
+class UnnamedFieldData(TypedDict):
     ord: int
     font: str | None
     media: list[str]
@@ -20,13 +30,13 @@ class Field(TypedDict, total=False):
     sticky: bool
 
 
-FieldAdapter = pydantic.TypeAdapter(Field)
-
-
-class Template(TypedDict, total=False):
+class FieldData(UnnamedFieldData):
     name: str
+
+
+class UnnamedTemplateData(TypedDict):
     afmt: str
-    qfmt: Required[str]
+    qfmt: str
     ord: int
     bafmt: str
     bqfmt: str
@@ -35,19 +45,32 @@ class Template(TypedDict, total=False):
     did: anki.decks.DeckId | None
 
 
-TemplateAdapter = pydantic.TypeAdapter(Template)
+class PartialUnnamedTemplateData(TypedDict, total=False):
+    afmt: str
+    qfmt: str
+    ord: int
+    bafmt: str
+    bqfmt: str
+    bfont: str
+    bsize: int
+    did: anki.decks.DeckId | None
+
+
+class TemplateData(UnnamedTemplateData):
+    name: str
 
 
 type _Req = list[
-    tuple[int, Literal["all"], list[int]] | tuple[int, Literal["any"], list[int]]
+    tuple[int, Literal["all"], list[int]]
+    | tuple[int, Literal["any"], list[int]]
 ]
 
 
 class ModelDict(TypedDict):
     css: str
     did: anki.decks.DeckId
-    flds: list[Field]
-    id: anki.models.NotetypeId
+    flds: list[FieldData]
+    id: NotRequired[anki.models.NotetypeId]
     latexPost: str
     latexPre: str
     latexsvg: bool
@@ -56,76 +79,237 @@ class ModelDict(TypedDict):
     req: _Req
     sortf: int
     tags: list[str]
-    tmpls: list[Template]
+    tmpls: list[TemplateData]
     type: int
     usn: int
     vers: list[str]
 
 
-ModelDictAdapter = pydantic.TypeAdapter(ModelDict)
+FieldOrStr = str | FieldData
+TemplateOrStr = dict[str, str] | TemplateData
 
 
-FieldOrStr = str | Field
-TemplateOrStr = dict[str, str] | Template
+class ModelField(dataclasses.Field[str]):
+
+    __genanki_field__: FieldData
+
+    alias: str | None = None
+
+    def __init__(self, data: UnnamedFieldData, *, alias: str | None = None, default: str | None = None) -> None:
+        super().__init__(
+            default=default if default is not None else "",
+            default_factory=lambda: "",
+            init=True,
+            repr=True,
+            hash=True,
+            compare=True,
+            metadata={},
+            kw_only=True,
+        )
+
+        self.__genanki_field__ = { "name": "", **data }
+
+        if alias:
+            self.alias = alias
 
 
-class Model:
-    FRONT_BACK: int = 0
-    CLOZE: int = 1
-    DEFAULT_LATEX_PRE: str = (
-        "\\documentclass[12pt]{article}\n\\special{papersize=3in,5in}\n\\usepackage[utf8]{inputenc}\n"
-        "\\usepackage{amssymb,amsmath}\n\\pagestyle{empty}\n\\setlength{\\parindent}{0in}\n"
-        "\\begin{document}\n"
-    )
-    DEFAULT_LATEX_POST = "\\end{document}"
+def field(field_data: UnnamedFieldData | None = None, *, alias: str | None = None, default: str | None = None) -> Any:
+    if field_data is None:
+        return ModelField(UnnamedFieldData(
+            font="Arial",
+            media=[],
+            ord=0,
+            rtl=False,
+            size=20,
+            sticky=False,
+        ), alias=alias, default=default)
+    return ModelField(field_data, alias=alias, default=default)
 
-    fields: list[Field]
-    templates: list[Template]
-    model_type: int
 
-    def __init__(
-        self,
-        model_id: int | None = None,
-        name: str | None = None,
-        fields: str | list[FieldOrStr] | None = None,
-        templates: list[TemplateOrStr] | None = None,
-        css: str = "",
-        model_type: int = FRONT_BACK,
-        latex_pre: str = DEFAULT_LATEX_PRE,
-        latex_post: str = DEFAULT_LATEX_POST,
-        sort_field_index: int = 0,
-    ):
-        self.model_id = model_id
-        self.name = name
-        self.set_fields(fields)
-        self.set_templates(templates)
-        self.css = css
-        self.model_type = model_type
-        self.latex_pre = latex_pre
-        self.latex_post = latex_post
-        self.sort_field_index = sort_field_index
+class ModelTemplate(dataclasses.Field[str]):
+    __genanki_template__: TemplateData
 
-    def set_fields(self, fields: str | list[FieldOrStr] | None):
-        if isinstance(fields, list):
-            self.fields = [FieldAdapter.validate_python(field) for field in fields]
-        elif isinstance(fields, str):
-            self.fields = pydantic.TypeAdapter(list[Field]).validate_python(
-                yaml.full_load(fields)
-            )
+    alias: str | None = None
 
-    def set_templates(self, templates: str | list[TemplateOrStr] | None):
-        if isinstance(templates, list):
-            self.templates = [
-                TemplateAdapter.validate_python(template) for template in templates
-            ]
-        elif isinstance(templates, str):
-            self.templates = pydantic.TypeAdapter(list[Template]).validate_python(
-                yaml.full_load(templates)
-            )
+    def __init__(self, data: UnnamedTemplateData, *, alias: str | None = None) -> None:
+        super().__init__(
+            default="",
+            default_factory=lambda: "",
+            init=True,
+            repr=True,
+            hash=True,
+            compare=True,
+            metadata={},
+            kw_only=True,
+        )
+
+        self.__genanki_template__ = { "name": "", **data }
+
+        if alias is not None:
+            self.alias = alias
+
+
+def template(template_data: PartialUnnamedTemplateData, *, alias: str | None = None) -> Any:
+    try:
+        data = TypeAdapter(UnnamedTemplateData).validate_python(template_data)
+
+        return ModelTemplate(
+            data,
+            alias=alias,
+        )
+    except ValidationError:
+        return ModelTemplate(
+            UnnamedTemplateData(
+                afmt=template_data.get("afmt", ""),
+                qfmt=template_data.get("qfmt", ""),
+                ord=template_data.get("ord", 0),
+                bafmt=template_data.get("bafmt", ""),
+                bqfmt=template_data.get("bqfmt", ""),
+                bfont=template_data.get("bfont", ""),
+                bsize=template_data.get("bsize", 20),
+                did=template_data.get("did", anki.decks.DeckId(0)),
+            ),
+            alias=alias,
+        )
+
+
+@dataclasses.dataclass
+class FieldSpec:
+    def values(self) -> tuple[str, ...]:
+        return dataclasses.astuple(self)
+
+    @classmethod
+    def defs(cls) -> Sequence[FieldData]:
+        if not dataclasses.is_dataclass(cls):
+            raise TypeError(f"{cls} is not a dataclass")
+
+        flds: list[FieldData] = []
+
+        for v in dataclasses.fields(cls):
+            if isinstance(v, ModelField):
+                flds.append(v.__genanki_field__)
+
+        return flds
+
+@dataclasses.dataclass
+class TemplateSpec[T: FieldSpec]:
+    fields: type[T]
+
+    def __init_subclass__(cls, fields: type[T]) -> None:
+        cls.fields = fields
+
+    @classmethod
+    def templates(cls) -> Sequence[TemplateData]:
+        if not dataclasses.is_dataclass(cls):
+            raise TypeError(f"{cls} is not a dataclass")
+
+        tpls: list[TemplateData] = []
+
+        for v in dataclasses.fields(cls):
+            if isinstance(v, ModelTemplate):
+                tpls.append(v.__genanki_template__)
+
+        return tpls
+
+T_co = TypeVar("T_co", bound=FieldSpec, contravariant=True, default=FieldSpec)
+class ModelSpec(Generic[T_co]):
+    fields: type[T_co]
+    templates: type[TemplateSpec[T_co]]
+
+
+@dataclass_transform(field_specifiers=(ModelField, field, ModelTemplate, template), kw_only_default=True)
+def spec[T: ModelSpec[Any]](cls: type[T]) -> type[T]:
+    new_cls = dataclasses.dataclass(cls)
+
+    if dataclasses.is_dataclass(new_cls):
+        for k, v in new_cls.__dataclass_fields__.items():
+            if isinstance(v, ModelField):
+                v.__genanki_field__["name"] = k if v.alias is None else v.alias
+            elif isinstance(v, ModelTemplate):
+                v.__genanki_template__["name"] = k
+
+    return new_cls
+
+
+M_co = TypeVar("M_co", bound=ModelSpec[FieldSpec], covariant=True, default=ModelSpec[FieldSpec])
+# F_co = TypeVar("F_co", bound=FieldSpec, covariant=True, default=FieldSpec)
+
+@attrs.define
+class VirtualModel(Generic[M_co]):
+    name: str = attrs.field(kw_only=True)
+    did: anki.decks.DeckId = attrs.field(kw_only=True, converter=anki.decks.DeckId, default=anki.decks.DeckId(0))
+    model_spec: type[M_co] = attrs.field(kw_only=True)
+
+    css: str = attrs.field(default="", kw_only=True)
+    latex_post: str = attrs.field(default="", kw_only=True)
+    latex_pre: str = attrs.field(default="", kw_only=True)
+    model_type: ModelType = attrs.field(default=ModelType.FRONT_BACK, kw_only=True)
+
+    _sort_field_index: int | None = attrs.field(default=None, alias="sort_field_index", kw_only=True)
 
     @property
-    def req(self) -> _Req:
-        return self._req
+    def fields(self) -> Sequence[FieldData]:
+
+        fields: list[FieldData] = []
+
+        for f in dataclasses.fields(self.model_spec.fields):
+            if isinstance(f, ModelField):
+                fields.append(f.__genanki_field__)
+
+        return fields
+
+    @property
+    def templates(self) -> Sequence[TemplateData]:
+        return self.model_spec.templates.templates()
+
+    def render(self, string: str, data: dict[str, str] | None = None) -> str:
+        return string
+
+    @property
+    def sort_field_index(self) -> int:
+        return self._sort_field_index if self._sort_field_index is not None else 0
+
+    @property
+    def req(self) -> notetypes_pb2.Notetype:
+        return notetypes_pb2.Notetype(
+            # config={},
+            fields=[
+                notetypes_pb2.Notetype.Field(
+                    config=notetypes_pb2.Notetype.Field.Config(
+                        collapsed=False,
+                        description=f["name"],
+                        exclude_from_search=False,
+                        font_name=f["font"] or "Arial",
+                        font_size=f["size"],
+                        prevent_deletion=False,
+                        rtl=False,
+                        sticky=f["sticky"],
+                    ),
+                    name=f["name"],
+                    ord=UInt32(val=f["ord"]),
+                )
+                for f in self.fields
+            ],
+            # id=,
+            # mtime_secs=,
+            name=self.name,
+            templates=[
+                notetypes_pb2.Notetype.Template(
+                    config=notetypes_pb2.Notetype.Template.Config(
+                        a_format=t["afmt"],
+                        a_format_browser=t["bafmt"],
+                        browser_font_name=t["bfont"],
+                        browser_font_size=t["bsize"],
+                        q_format=t["qfmt"],
+                        q_format_browser=t["bqfmt"],
+                    ),
+                    name=t["name"],
+                    ord=UInt32(val=t["ord"]),
+                )
+                for t in self.templates
+            ],
+            # usn=,
+        )
 
     @property
     def _req(self) -> _Req:
@@ -139,16 +323,16 @@ class Model:
         doesn't contain any meaningful content.
         """
         sentinel = "SeNtInEl"
-        field_names = [field["name"] for field in self.fields]
+        field_names = [a.name for a in dataclasses.fields(self.model_spec.fields)]
 
         req: _Req = []
-        for template_ord, template in enumerate(self.templates):
+        for template_ord, template in enumerate(self.model_spec.templates.templates()):
             required_fields: list[int] = []
-            for field_ord, field in enumerate(field_names):
+            for field_ord, field_ in enumerate(field_names):
                 field_values = dict.fromkeys(field_names, sentinel)
-                field_values[field] = ""
+                field_values[field_] = ""
 
-                rendered = chevron.render(template["qfmt"], field_values)
+                rendered = self.render(template["qfmt"], field_values)
 
                 if sentinel not in rendered:
                     # when this field is missing, there is no meaningful content (no field values) in the question, so this field
@@ -160,11 +344,11 @@ class Model:
                 continue
 
             # there are no required fields, so an "all" is not appropriate, switch to checking for "any"
-            for field_ord, field in enumerate(field_names):
+            for field_ord, field_ in enumerate(field_names):
                 field_values = dict.fromkeys(field_names, "")
-                field_values[field] = sentinel
+                field_values[field_] = sentinel
 
-                rendered = chevron.render(template["qfmt"], field_values)
+                rendered = self.render(template["qfmt"], field_values)
 
                 if sentinel in rendered:
                     # when this field is present, there is meaningful content in the question
@@ -179,47 +363,29 @@ class Model:
 
         return req
 
-    def to_json(self, timestamp: float, deck_id: anki.decks.DeckId):
-        for ord_, tmpl in enumerate(self.templates):
-            tmpl["ord"] = ord_
-            tmpl.setdefault("bafmt", "")
-            tmpl.setdefault("bqfmt", "")
-            tmpl.setdefault("bfont", "")
-            tmpl.setdefault("bsize", 0)
-            tmpl.setdefault(
-                "did", None
-            )  # TODO None works just fine here, but should it be deck_id?
 
-        for ord_, field in enumerate(self.fields):
-            field["ord"] = ord_
-            field.setdefault("font", "Liberation Sans")
-            field.setdefault("media", [])
-            field.setdefault("rtl", False)
-            field.setdefault("size", 20)
-            field.setdefault("sticky", False)
+    def to_json(self, timestamp: float, deck_id: anki.decks.DeckId) -> ModelDict:
+        data: ModelDict = {
+            "css": self.css,
+            "did": deck_id,
+            "flds": list(self.fields),
+            "latexPost": self.latex_post,
+            "latexPre": self.latex_pre,
+            "latexsvg": False,
+            "mod": int(timestamp),
+            "name": self.name,
+            "req": self._req,
+            "sortf": self.sort_field_index,
+            "tags": [],
+            "tmpls": list(self.model_spec.templates.templates()),
+            "type": self.model_type,
+            "usn": -1,
+            "vers": [],
+        }
 
-        return ModelDictAdapter.validate_python(
-            {
-                "css": self.css,
-                "did": deck_id,
-                "flds": self.fields,
-                "id": str(self.model_id),
-                "latexPost": self.latex_post,
-                "latexPre": self.latex_pre,
-                "latexsvg": False,
-                "mod": int(timestamp),
-                "name": self.name,
-                "req": self._req,
-                "sortf": self.sort_field_index,
-                "tags": [],
-                "tmpls": self.templates,
-                "type": self.model_type,
-                "usn": -1,
-                "vers": [],
-            }
-        )
+        return data
 
-    def __repr__(self):
-        attrs = ["model_id", "name", "fields", "templates", "css", "model_type"]
-        pieces = [f"{attr}={getattr(self, attr)!r}" for attr in attrs]
-        return "{}({})".format(self.__class__.__name__, ", ".join(pieces))
+
+@attrs.define(kw_only=True)
+class RealizedModel(VirtualModel[M_co]):
+    model_id: anki.models.NotetypeId = attrs.field()

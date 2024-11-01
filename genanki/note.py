@@ -1,16 +1,15 @@
 from collections.abc import Iterable
 import re
-from typing import Protocol, SupportsIndex
-from .model import Model
-from sqlite3 import Cursor
+from typing import Any, Generic, SupportsIndex, TypeVar
 
-from .builtin_models import _fix_deprecated_builtin_models_and_warn
-from .card import Card
-from .util import guid_for
+import attr
+from attrs import define, field
 
+from anki import notes_pb2
 
-class SupportsNext[T](Protocol):
-    def __next__(self) -> T: ...
+from genanki.util import guid_for
+from genanki.model import FieldSpec, VirtualModel, RealizedModel, ModelSpec, ModelType
+from genanki.card import Card
 
 
 class Tag:
@@ -85,49 +84,44 @@ class _TagList(list[Tag]):
         super().insert(i, t)
 
 
-class Note:
+def _validate_sort_field[F: FieldSpec](self: "VirtualNote[F]", _attr: "attr.Attribute[str]", val: str) -> bool:
+    return val in list(map(lambda x: x["name"], self.model.fields))
+
+def _default_sort_field[F: FieldSpec](self: "VirtualNote[F]") -> str:
+    return self.model.fields[0]["name"]
+
+
+F_co = TypeVar("F_co", bound=FieldSpec, covariant=True, default=FieldSpec)
+
+
+@define(kw_only=True, slots=True)
+class VirtualNote(Generic[F_co]):
+    model: VirtualModel[ModelSpec[F_co]] = field()
+    fields: F_co = field()
+    due: int = field(default=0)
+
     _INVALID_HTML_TAG_RE = re.compile(
         r"<(?!/?[a-zA-Z0-9]+(?: .*|/?)>|!--|!\[CDATA\[)(?:.|\n)*?>"
     )
 
-    _sort_field: str | None
-    _guid: str | None
-    _cards: list[Card] | None
+    sort_field: str = field(validator=_validate_sort_field, default=attr.Factory(_default_sort_field, takes_self=True))
+    _cards: list[Card] | None = field(default=None)
+    _tags: _TagList = field(factory=_TagList, alias="tags", converter=_TagList)
 
-    def __init__(
-        self,
-        model: Model | None = None,
-        fields: list[str] | None = None,
-        sort_field: str | None = None,
-        tags: list[str] | None = None,
-        guid: str | None = None,
-        due: int = 0,
-    ):
-        self.model = model or Model()
-        self.fields = fields or []
-        self.sort_field = sort_field
-        self.tags = _TagList(tags or [])
-        self.due = due
-        self._guid = None
-        self._cards = None
-
-        if guid is not None:
-            try:  # noqa: SIM105
-                self.guid = guid
-            except AttributeError:
-                # guid was defined as a property
-                pass
+    _guid: str | None = field(default=None, alias="guid")
 
     @property
-    def sort_field(self) -> str | None:
-        if self._sort_field is not None:
-            return self._sort_field
-        else:
-            return self.fields[self.model.sort_field_index]
+    def guid(self) -> str:
+        if self._guid is not None:
+            return self._guid
+        return guid_for(self.fields)
 
-    @sort_field.setter
-    def sort_field(self, val: str | None):
-        self._sort_field = val
+    def __attrs_post_init__(self):
+        if not hasattr(self.__class__, "guid") or self.__class__.guid.__isabstractmethod__:
+            raise NotImplementedError("Must implement guid property")
+
+        self._check_number_model_fields_matches_num_fields()
+        self._check_invalid_html_tags_in_fields()
 
     @property
     def tags(self) -> _TagList:
@@ -138,21 +132,35 @@ class Note:
         self._tags = _TagList()
         self._tags.extend(x if isinstance(x, Tag) else Tag(x) for x in val)
 
-    # We use cached_property instead of initializing in the constructor so that the user can set the model after calling
-    # __init__ and it'll still work.
     @property
     def cards(self) -> list[Card]:
         if self._cards is None:
-            if self.model.model_type == self.model.FRONT_BACK:
+            if self.model.model_type == ModelType.FRONT_BACK:
                 self._cards = self._front_back_cards()
-            elif self.model.model_type == self.model.CLOZE:
+            elif self.model.model_type == ModelType.CLOZE:
                 self._cards = self._cloze_cards()
             else:
                 raise ValueError("Expected model_type CLOZE or FRONT_BACK")
 
         return self._cards
 
-    def _cloze_cards(self):
+    def write_to_db(self, a: Any, b: Any, c: Any, d: Any):
+        pass
+
+    @property
+    def req(self) -> notes_pb2.Note:
+        result = notes_pb2.Note(
+            fields=self.fields.values(),
+            guid=self.guid,
+            # id=,
+            # mtime_secs=,
+            notetype_id=self.model.model_id or 0,
+            # tags=,
+            # usn=,
+        )
+        return result
+
+    def _cloze_cards(self) -> list[Card]:
         """Returns a Card with unique ord for each unique cloze reference."""
         card_ords: set[int] = set()
         # find cloze replacements in first template's qfmt, e.g "{{cloze::Text}}"
@@ -167,7 +175,7 @@ class Note:
                 (i for i, f in enumerate(self.model.fields) if f["name"] == field_name),
                 -1,
             )
-            field_value = self.fields[field_index] if field_index >= 0 else ""
+            field_value = self.fields.values()[field_index] if field_index >= 0 else ""
             # update card_ords with each cloze reference N, e.g. "{{cN::...}}"
             card_ords.update(
                 m - 1
@@ -180,30 +188,22 @@ class Note:
             card_ords = {0}
         return [Card(ord_) for ord_ in card_ords]
 
-    def _front_back_cards(self):
+    def _front_back_cards(self) -> list[Card]:
         """Create Front/Back cards"""
         rv: list[Card] = []
-        for card_ord, any_or_all, required_field_ords in self.model.req:
+
+        for card_ord, any_or_all, required_field_ords in self.model._req:
             op = {"any": any, "all": all}[any_or_all]
-            if op(self.fields[ord_] for ord_ in required_field_ords):
+            if op(self.fields.defs()[ord_] for ord_ in required_field_ords):
                 rv.append(Card(card_ord))
         return rv
 
-    @property
-    def guid(self):
-        if self._guid is None:
-            self._guid = guid_for(*self.fields)
-        return self._guid
 
-    @guid.setter
-    def guid(self, val: str):
-        self._guid = val
-
-    def _check_number_model_fields_matches_num_fields(self):
-        if len(self.model.fields) != len(self.fields):
+    def _check_number_model_fields_matches_num_fields(self) -> None:
+        if len(self.model.fields) != len(self.fields.defs()):
             raise ValueError(
                 "Number of fields in Model does not match number of fields in Note: "
-                f"{self.model} has {len(self.model.fields)} fields, but {self} has {len(self.fields)} fields."
+                f"{self.model} has {len(self.model.fields)} fields, but {self} has {len(self.fields.defs())} fields."
             )
 
     @classmethod
@@ -211,8 +211,8 @@ class Note:
         return cls._INVALID_HTML_TAG_RE.findall(field)
 
     def _check_invalid_html_tags_in_fields(self):
-        for _idx, field in enumerate(self.fields):
-            invalid_tags = self._find_invalid_html_tags_in_field(field)
+        for _idx, field_ in enumerate(self.fields.values()):
+            invalid_tags = self._find_invalid_html_tags_in_field(field_)
             if invalid_tags:
                 # You can disable the below warning by calling warnings.filterwarnings:
                 #
@@ -227,45 +227,18 @@ class Note:
                     ),
                 )
 
-    def write_to_db[T](
-        self, cursor: Cursor, timestamp: float, deck_id: int, id_gen: SupportsNext[T]
-    ):
-        self.fields = _fix_deprecated_builtin_models_and_warn(self.model, self.fields)
-        self._check_number_model_fields_matches_num_fields()
-        self._check_invalid_html_tags_in_fields()
-
-        params = (
-            next(id_gen),           # id
-            self.guid,              # guid
-            self.model.model_id,    # mid
-            int(timestamp),         # mod
-            -1,                     # usn
-            self._format_tags(),    # TODO tags
-            self._format_fields(),  # flds
-            self.sort_field,        # sfld
-            0,                      # csum, can be ignored
-            0,                      # flags
-            "",                     # data
-        )
-        cursor.execute(
-            "INSERT INTO notes VALUES(?,?,?,?,?,?,?,?,?,?,?);",
-            params,
-        )
-
-        note_id = cursor.lastrowid
-        if note_id is not None:
-            for card in self.cards:
-                card.write_to_db(cursor, timestamp, deck_id, note_id, id_gen, self.due)
-        else:
-            raise ValueError("Failed to insert note into database")
-
     def _format_fields(self):
-        return "\x1f".join(self.fields)
+        return "\x1f".join(self.fields.values())
 
     def _format_tags(self) -> str:
         return f" {" ".join(map(str, self.tags))} "
 
     def __repr__(self):
-        attrs = ["model", "fields", "sort_field", "tags", "guid"]
+        attrs = ["model", "fields", "sort_field", "tags"]
         pieces = [f"{attr}={getattr(self, attr)!r}" for attr in attrs]
-        return "{}({})".format(self.__class__.__name__, ", ".join(pieces))
+        return f"{self.__class__.__name__}({", ".join(pieces)})"
+
+
+@define(kw_only=True, slots=True)
+class RealizedNote(Generic[F_co]):
+    pass

@@ -1,48 +1,39 @@
-import json
-from sqlite3 import Cursor
-from typing import Protocol
-
+from typing import Any
 import anki
 import anki.collection
+import anki.models
 import anki.lang
 import anki.decks
 
+from attrs import define, field
+
 # from .deck import Deck
-from .model import Model
-from .note import Note
+from genanki.model import Model
+from genanki.note import Note
 
 
 if anki.lang.current_i18n is None:
     anki.lang.set_lang("en")
 
 
-class SupportsNext[T](Protocol):
-    def __next__(self) -> T: ...
-
-
+@define(kw_only=True)
 class Deck:
-    notes: list[Note]
-    models: dict[int, Model]
+    name: str
+    description: str = field(default="An Anki deck")
+    notes: list[Note[Any]] = field(default=[])
+    models: dict[str, Model[Any]] = field(default={})
+    deck_id: anki.decks.DeckId = field(default=anki.decks.DeckId(0))
 
-    def __init__(
-        self,
-        deck_id: anki.decks.DeckId | None = None,
-        name: str | None = None,
-        description: str = "",
-    ):
-        self.deck_id = deck_id
-        self.name = name
-        self.description = description
-        self.notes = []
-        self.models = {}  # map of model id to model
+    def add_note(self, note: Note[Any]) -> None:
+        if note.model.name not in self.models:
+            self.add_model(note.model)
+        elif note.model != self.models[note.model.name]:
+            raise ValueError("Note model does not match deck model")
 
-    def add_note(self, note: Note) -> None:
         self.notes.append(note)
 
-    def add_model(self, model: Model):
-        if model.model_id is None:
-            raise ValueError("Model ID must not be None.")
-        self.models[model.model_id] = model
+    def add_model(self, model: Model[Any]):
+        self.models[model.name] = model
 
     def to_json(self):
         return {
@@ -61,34 +52,3 @@ class Deck:
             "timeToday": [163, 23598],
             "usn": -1,
         }
-
-    def write_to_db[T](self, cursor: Cursor, timestamp: float, id_gen: SupportsNext[T]):
-        if not isinstance(self.deck_id, int):
-            raise TypeError(f"Deck .deck_id must be an integer, not {self.deck_id}.")
-        if not isinstance(self.name, str):
-            raise TypeError(f"Deck .name must be a string, not {self.name}.")
-
-        (decks_json_str,) = cursor.execute("SELECT decks FROM col").fetchone()
-        decks = json.loads(decks_json_str)
-        decks.update({str(self.deck_id): self.to_json()})
-        cursor.execute("UPDATE col SET decks = ?", (json.dumps(decks),))
-
-        (models_json_str,) = cursor.execute("SELECT models from col").fetchone()
-        models = json.loads(models_json_str)
-        for note in self.notes:
-            self.add_model(note.model)
-        try:
-            models.update(
-                {
-                    model.model_id: model.to_json(timestamp, self.deck_id)
-                    for model in self.models.values()
-                }
-            )
-        except:
-            print("hi")
-            raise
-
-        cursor.execute("UPDATE col SET models = ?", (json.dumps(models),))
-
-        for note in self.notes:
-            note.write_to_db(cursor, timestamp, self.deck_id, id_gen)

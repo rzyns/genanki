@@ -1,15 +1,18 @@
-import itertools
-import json
-import os
-import sqlite3
-import tempfile
-import time
-import zipfile
+from pathlib import Path
 from typing import Protocol
 from collections.abc import Iterable
 
-from .apkg_col import APKG_COL
-from .apkg_schema import APKG_SCHEMA
+import anki
+import anki.lang
+import anki.collection
+import anki.decks
+import anki.models
+import anki.notes
+# from anki.exporting import AnkiPackageExporter
+from anki.import_export_pb2 import ExportAnkiPackageOptions
+
+from genanki import collection
+
 from .deck import Deck
 
 class SupportsNext[T](Protocol):
@@ -37,70 +40,34 @@ class Package:
         self.id_gen = id_gen
 
     def write_to_file(self, file: str, timestamp: float | None = None, id_gen: SupportsNext[int] | None = None) -> None:
-        """
-        :param file: File path to write to.
-        :param timestamp: Timestamp (float seconds since Unix epoch) to assign to generated notes/cards. Can be used to
-            make build hermetic. Defaults to time.time().
-        """
-        dbfile, dbfilename = tempfile.mkstemp()
-        os.close(dbfile)
+        root = Path(__file__).parent.parent.resolve()
 
-        conn = sqlite3.connect(dbfilename)
-        cursor = conn.cursor()
+        with collection.empty_collection(dir=root.as_posix()) as collection_path:
+            col = anki.collection.Collection(collection_path)
+            for genanki_deck in self.decks:
+                anki_deck = col.decks.new_deck()
+                anki_deck.name = genanki_deck.name
 
-        if timestamp is None:
-            timestamp = time.time()
+                out = col.decks.add_deck(anki_deck)
+                genanki_deck.deck_id = anki.decks.DeckId(out.id)
 
-        id_gen = id_gen or self.id_gen or itertools.count(int(timestamp * 1000))
-        self.write_to_db(cursor, timestamp, id_gen)
+                for m in genanki_deck.models.values():
+                    a = col._backend.add_notetype(m.req)
+                    assert a.id is not None
+                    m.model_id = anki.models.NotetypeId(a.id)
 
-        conn.commit()
-        conn.close()
+                    for a in genanki_deck.notes:
+                        col._backend.add_note(
+                            deck_id=genanki_deck.deck_id,
+                            note=a.req,
+                        )
 
-        with zipfile.ZipFile(file, "w") as outzip:
-            outzip.write(dbfilename, "collection.anki2")
-
-            media_file_idx_to_path = dict(enumerate(self.media_files))
-            media_json = {
-                idx: os.path.basename(path)
-                for idx, path in media_file_idx_to_path.items()
-            }
-            outzip.writestr("media", json.dumps(media_json))
-
-            for idx, path in media_file_idx_to_path.items():
-                outzip.write(path, str(idx))
-
-    def write_to_db[T](
-        self, cursor: sqlite3.Cursor, timestamp: float, id_gen: SupportsNext[T]
-    ) -> None:
-        cursor.executescript(APKG_SCHEMA)
-        cursor.executescript(APKG_COL)
-
-        for deck in self.decks:
-            deck.write_to_db(cursor, timestamp, id_gen)
-
-    def write_to_collection_from_addon(self):
-        """
-        Write to local collection. *Only usable when running inside an Anki addon!* Only tested on Anki 2.1.
-
-        This writes to a temporary file and then calls the code that Anki uses to import packages.
-
-        Note: the caller may want to use mw.checkpoint and mw.reset as follows:
-
-          # creates a menu item called "Undo Add Notes From MyAddon" after this runs
-          mw.checkpoint('Add Notes From MyAddon')
-          # run import
-          my_package.write_to_collection_from_addon()
-          # refreshes main view so new deck is visible
-          mw.reset()
-
-        Tip: if your deck has the same name and ID as an existing deck, then the notes will get placed in that deck rather
-        than a new deck being created.
-        """
-        from anki.importing.apkg import AnkiPackageImporter  # noqa: PLC0415
-        from aqt import mw  # main window  # noqa: PLC0415
-
-        if mw is not None and mw.col is not None:
-            with tempfile.NamedTemporaryFile(delete=False) as tmpfile:
-                self.write_to_file(tmpfile.name)
-                AnkiPackageImporter(mw.col, tmpfile.name).run()
+                col.export_anki_package(
+                    out_path=file,
+                    options=ExportAnkiPackageOptions(
+                        with_deck_configs=True,
+                        with_media=True,
+                        with_scheduling=True,
+                    ),
+                    limit=None,
+                )

@@ -1,0 +1,68 @@
+{
+    "1729308885577": {
+        "id": 1729308885577,
+        "mod": 1729308885,
+        "name": "foo",
+        "usn": -1,
+        "lrnToday": [
+            0,
+            0
+        ],
+        "revToday": [
+            0,
+            0
+        ],
+        "newToday": [
+            0,
+            0
+        ],
+        "timeToday": [
+            0,
+            0
+        ],
+        "collapsed": true,
+        "browserCollapsed": true,
+        "desc": "",
+        "dyn": 0,
+        "conf": 1,
+        "extendNew": 0,
+        "extendRev": 0,
+        "reviewLimit": null,
+        "newLimit": null,
+        "reviewLimitToday": null,
+        "newLimitToday": null
+    },
+    "1": {
+        "id": 1,
+        "mod": 0,
+        "name": "Default",
+        "usn": 0,
+        "lrnToday": [
+            0,
+            0
+        ],
+        "revToday": [
+            0,
+            0
+        ],
+        "newToday": [
+            0,
+            0
+        ],
+        "timeToday": [
+            0,
+            0
+        ],
+        "collapsed": true,
+        "browserCollapsed": true,
+        "desc": "",
+        "dyn": 0,
+        "conf": 1,
+        "extendNew": 0,
+        "extendRev": 0,
+        "reviewLimit": null,
+        "newLimit": null,
+        "reviewLimitToday": null,
+        "newLimitToday": null
+    }
+}

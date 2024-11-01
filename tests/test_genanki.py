@@ -1,10 +1,11 @@
-from collections.abc import Callable, Generator
+from contextlib import contextmanager
+from functools import reduce
 import os
 import sys
+from typing import Any, cast
 
-from _pytest.fixtures import SubRequest
-from anki.media_pb2 import CheckMediaResponse
 import genanki
+from genanki import collection
 import genanki.deck
 import genanki.model
 
@@ -18,57 +19,77 @@ import anki.collection
 import anki.cards
 import anki.decks
 import anki.notes
+import anki.models
+import anki.importing
 import anki.importing.apkg
+from anki.media_pb2 import CheckMediaResponse
+
+class ModelSpec1(genanki.model.ModelSpec[Any]):
+    @genanki.model.spec
+    class fields(genanki.model.FieldSpec):
+        AField: str = genanki.model.field()
+        BField: str = genanki.model.field()
+
+    @genanki.model.spec
+    class templates(genanki.model.TemplateSpec[fields], fields=fields):
+        card1: str = genanki.model.template({
+            "qfmt": "{{AField}}",
+            "afmt": "{{FrontSide}}<hr id=answer>{{BField}}",
+        })
+
 
 TEST_MODEL = genanki.model.Model(
-    234567,
-    "foomodel",
-    fields=[
-        {
-            "name": "AField",
-        },
-        {
-            "name": "BField",
-        },
-    ],
-    templates=[
-        {
-            "name": "card1",
-            "qfmt": "{{AField}}",
-            "afmt": "{{FrontSide}}" '<hr id="answer">' "{{BField}}",
-        }
-    ],
+    # model_id=anki.models.NotetypeId(234567),
+    name="foomodel",
+    model_spec=ModelSpec1,
 )
+
+
+class CNModelSpec(genanki.model.ModelSpec[Any]):
+    @genanki.model.spec
+    class fields(genanki.model.FieldSpec):
+        Traditional: str = genanki.model.field()
+        Simplified: str = genanki.model.field()
+        English: str = genanki.model.field()
+
+    @genanki.model.spec
+    class templates(genanki.model.TemplateSpec[fields], fields=fields):
+        Traditional: str = genanki.model.template({
+            "qfmt": "{{Traditional}}",
+            "afmt": "{{FrontSide}}<hr id=answer>{{English}}",
+        })
+        Simplified: str = genanki.model.template({
+            "qfmt": "{{Simplified}}",
+            "afmt": "{{FrontSide}}<hr id=answer>{{English}}",
+        })
+
 
 TEST_CN_MODEL = genanki.model.Model(
-    345678,
-    "Chinese",
-    fields=[{"name": "Traditional"}, {"name": "Simplified"}, {"name": "English"}],
-    templates=[
-        {
-            "name": "Traditional",
-            "qfmt": "{{Traditional}}",
-            "afmt": "{{FrontSide}}" '<hr id="answer">' "{{English}}",
-        },
-        {
-            "name": "Simplified",
-            "qfmt": "{{Simplified}}",
-            "afmt": "{{FrontSide}}" '<hr id="answer">' "{{English}}",
-        },
-    ],
+    # model_id=anki.models.NotetypeId(345678),
+    name="Chinese",
+    model_spec=CNModelSpec,
 )
 
-TEST_MODEL_WITH_HINT = genanki.model.Model(
-    456789,
-    "with hint",
-    fields=[{"name": "Question"}, {"name": "Hint"}, {"name": "Answer"}],
-    templates=[
-        {
-            "name": "card1",
-            "qfmt": "{{Question}}" "{{#Hint}}<br>Hint: {{Hint}}{{/Hint}}",
+
+class ModelWithHintSpec(genanki.model.ModelSpec[Any]):
+    @genanki.model.spec
+    class fields(genanki.model.FieldSpec):
+        Question: str = genanki.model.field()
+        Hint: str = genanki.model.field()
+        Answer: str = genanki.model.field()
+
+    @genanki.model.spec
+    class templates(genanki.model.TemplateSpec[fields], fields=fields):
+        card1: str = genanki.model.template({
+            "qfmt": "{{Question}}{{#Hint}}<br>Hint: {{Hint}}{{/Hint}}",
             "afmt": "{{Answer}}",
-        },
-    ],
+        })
+
+
+TEST_MODEL_WITH_HINT = genanki.model.Model(
+    # model_id=anki.models.NotetypeId(456789),
+    name="with hint",
+    model_spec=ModelWithHintSpec,
 )
 
 # Same as default latex_pre but we include amsfonts package
@@ -80,47 +101,49 @@ CUSTOM_LATEX_PRE = (
 # Same as default latex_post but we add a comment. (What is a real-world use-case for customizing latex_post?)
 CUSTOM_LATEX_POST = "% here is a great comment\n\\end{document}"
 
-TEST_MODEL_WITH_LATEX = genanki.model.Model(
-    567890,
-    "with latex",
-    fields=[
-        {
-            "name": "AField",
-        },
-        {
-            "name": "BField",
-        },
-    ],
-    templates=[
-        {
-            "name": "card1",
+
+class ModelWithLatexSpec(genanki.model.ModelSpec[Any]):
+    @genanki.model.spec
+    class fields(genanki.model.FieldSpec):
+        AField: str = genanki.model.field()
+        BField: str = genanki.model.field()
+
+    @genanki.model.spec
+    class templates(genanki.model.TemplateSpec[fields], fields=fields):
+        card1: str = genanki.model.template({
             "qfmt": "{{AField}}",
-            "afmt": "{{FrontSide}}" '<hr id="answer">' "{{BField}}",
-        }
-    ],
+            "afmt": "{{FrontSide}}<hr id=answer>{{BField}}",
+        })
+
+
+TEST_MODEL_WITH_LATEX = genanki.model.Model(
+    # model_id=anki.models.NotetypeId(567890),
+    name="with latex",
+    model_spec=ModelWithLatexSpec,
     latex_pre=CUSTOM_LATEX_PRE,
     latex_post=CUSTOM_LATEX_POST,
 )
 
+
+class ModelWithSortFieldIndexSpec(genanki.model.ModelSpec[Any]):
+    @genanki.model.spec
+    class fields(genanki.model.FieldSpec):
+        AField: str = genanki.model.field()
+        BField: str = genanki.model.field()
+
+    @genanki.model.spec
+    class templates(genanki.model.TemplateSpec[fields], fields=fields):
+        card1: str = genanki.model.template({
+            "qfmt": "{{AField}}",
+            "afmt": "{{FrontSide}}<hr id=answer>{{BField}}",
+        })
+
+
 CUSTOM_SORT_FIELD_INDEX = 1  # Anki default value is 0
 TEST_MODEL_WITH_SORT_FIELD_INDEX = genanki.model.Model(
-    987123,
-    "with sort field index",
-    fields=[
-        {
-            "name": "AField",
-        },
-        {
-            "name": "BField",
-        },
-    ],
-    templates=[
-        {
-            "name": "card1",
-            "qfmt": "{{AField}}",
-            "afmt": "{{FrontSide}}" '<hr id="answer">' "{{BField}}",
-        }
-    ],
+    # model_id=anki.models.NotetypeId(987123),
+    name="with sort field index",
+    model_spec=ModelWithSortFieldIndexSpec,
     sort_field_index=CUSTOM_SORT_FIELD_INDEX,
 )
 
@@ -142,143 +165,158 @@ VALID_JPG = (
 )
 
 
-type AnkiCollectionFixture = anki.collection.Collection
+@contextmanager
+def new_anki_collection():
+    with collection.empty_collection(suffix=".anki2", delete=True) as colf:
+        col = anki.collection.Collection(colf)
+        col.reset()
+        yield col
 
 
-@pytest.fixture(autouse=True, scope="function")
-def anki_collection(request: SubRequest) -> Generator[AnkiCollectionFixture]:
-    # TODO make this less messy
-    with tempfile.NamedTemporaryFile(
-        suffix=".anki2", delete=False, delete_on_close=False
-    ) as colf:
-        colf.close()  # colf is deleted
-        yield anki.collection.Collection(colf.name)
-        if not request.session.testsfailed:
-            os.unlink(colf.name)
-
-
-type ImportPackageFixture = Callable[[genanki.Package, float | None], None]
-
-
-@pytest.fixture(autouse=False, scope="function")
-def import_package(
-    anki_collection: AnkiCollectionFixture,
-) -> Generator[ImportPackageFixture]:
-    with tempfile.NamedTemporaryFile(
-        suffix=".apkg", delete=False, delete_on_close=False
-    ) as outf:
-
-        def import_package_fn(
-            pkg: genanki.Package, timestamp: float | None = None
-        ):
-            """
-            Imports `pkg` into self.col.
-
-            :param genanki.Package pkg:
-            """
-            outf.close()
-
-            pkg.write_to_file(outf.name, timestamp=timestamp)
-
-            importer = anki.importing.apkg.AnkiPackageImporter(
-                anki_collection, outf.name
+def import_package(col: anki.collection.Collection, file: str):
+    # https://forums.ankiweb.net/t/working-with-an-ankideck-using-python/37311/3
+    col.import_anki_package(
+        anki.collection.ImportAnkiPackageRequest(
+            package_path=file,
+            options=anki.collection.ImportAnkiPackageOptions(
+                with_deck_configs=True,
+                with_scheduling=True,
             )
-            importer.run()
-
-        yield import_package_fn
-
-
-type CheckMediaFixture = Callable[[], CheckMediaResponse]
+        )
+    )
 
 
-@pytest.fixture(autouse=False, scope="function")
-def check_media(
-    anki_collection: AnkiCollectionFixture,
-) -> Generator[CheckMediaFixture]:
-    def check_media_fn():
-        # col.media.check seems to assume that the cwd is the media directory. So this helper function
-        # chdirs to the media dir before running check and then goes back to the original cwd.
-        orig_cwd = os.getcwd()
-        os.chdir(anki_collection.media.dir())
-        ret = anki_collection.media.check()
-        os.chdir(orig_cwd)
-        return ret
-
-    yield check_media_fn
+def check_media(anki_collection: anki.collection.Collection) -> CheckMediaResponse:
+    # col.media.check seems to assume that the cwd is the media directory. So this helper function
+    # chdirs to the media dir before running check and then goes back to the original cwd.
+    orig_cwd = os.getcwd()
+    os.chdir(anki_collection.media.dir())
+    ret = anki_collection.media.check()
+    os.chdir(orig_cwd)
+    return ret
 
 
-def test_generated_deck_can_be_imported(
-    anki_collection: AnkiCollectionFixture,
-    import_package: ImportPackageFixture,
-):
-    deck = genanki.Deck(anki.decks.DeckId(123456), "foodeck")
-    note = genanki.Note(TEST_MODEL, ["a", "b"])
+def test_generated_deck_can_be_imported():
+    deck = genanki.Deck(deck_id=anki.decks.DeckId(123456), name="foodeck")
+    note = genanki.Note(model=TEST_MODEL, fields=TEST_MODEL.model_spec.fields(AField="a", BField="b"))
     deck.add_note(note)
 
-    import_package(genanki.Package(deck), None)
+    with tempfile.NamedTemporaryFile(delete=True, delete_on_close=False, suffix=".apkg") as tmpfile:
+        pkg = genanki.Package(deck)
+        pkg.write_to_file(tmpfile.name)
 
-    all_imported_decks = anki_collection.decks.all()
-    assert len(all_imported_decks) == 2  # default deck and foodeck
-    assert any(anki_decks["name"] == "foodeck" for anki_decks in all_imported_decks)
+        with new_anki_collection() as col:
+
+            check_media(col)
+            import_package(col, tmpfile.name)
+
+            all_imported_decks = col.decks.all()
+            assert len(all_imported_decks) == 2
+            assert any(anki_deck["name"] == "foodeck" for anki_deck in all_imported_decks)
 
 
-def test_generated_deck_has_valid_cards(
-    anki_collection: AnkiCollectionFixture, import_package: ImportPackageFixture
-):
+def test_generated_deck_has_valid_cards():
     """
     Generates a deck with several notes and verifies that the nid/ord combinations on the generated cards make sense.
 
     Catches a bug that was fixed in 08d8a139.
     """
-    deck = genanki.Deck(anki.decks.DeckId(123456), "foodeck")
-    deck.add_note(genanki.Note(TEST_CN_MODEL, ["a", "b", "c"]))  # 2 cards
-    deck.add_note(genanki.Note(TEST_CN_MODEL, ["d", "e", "f"]))  # 2 cards
-    deck.add_note(genanki.Note(TEST_CN_MODEL, ["g", "h", "i"]))  # 2 cards
+    with collection.empty_collection(suffix=".anki2", delete=True) as colf:
+        col = anki.collection.Collection(colf)
+        deck = genanki.Deck(deck_id=anki.decks.DeckId(223457), name="foodeck")
 
-    import_package(genanki.Package(deck), None)
+        for note in [
+            genanki.Note(model=TEST_CN_MODEL, fields=TEST_CN_MODEL.model_spec.fields(Traditional="a", Simplified="b", English="c")),
+            genanki.Note(model=TEST_CN_MODEL, fields=TEST_CN_MODEL.model_spec.fields(Traditional="d", Simplified="e", English="f")),
+            genanki.Note(model=TEST_CN_MODEL, fields=TEST_CN_MODEL.model_spec.fields(Traditional="g", Simplified="h", English="i")),
+        ]:
+            assert len(note.cards) == 2
+            deck.add_note(note)
 
-    cards: list[anki.cards.Card] = [
-        anki_collection.get_card(i) for i in anki_collection.find_cards("")
-    ]
+        with tempfile.NamedTemporaryFile(delete=True, delete_on_close=False, suffix=".apkg") as tmpfile:
+            pkg = genanki.Package(deck)
+            num_cards = reduce(lambda acc, note: acc + len(note.cards), deck.notes, 0)
+            assert num_cards == 6
 
-    # the bug causes us to fail to generate certain cards (e.g. the second card for the second note)
-    assert len(cards) == 6
+            pkg.write_to_file(tmpfile.name)
+
+            import_package(col, tmpfile.name)
+
+            cards: list[anki.cards.Card] = [
+                col.get_card(i) for i in col.find_cards("")
+            ]
+
+            # the bug causes us to fail to generate certain cards (e.g. the second card for the second note)
+            assert len(cards) == 6
 
 
-def test_multi_deck_package(
-    anki_collection: AnkiCollectionFixture, import_package: ImportPackageFixture
-):
-    deck1 = genanki.Deck(anki.decks.DeckId(123456), "foodeck")
-    deck2 = genanki.Deck(anki.decks.DeckId(654321), "bardeck")
+def test_export():
+    deck1 = genanki.Deck(deck_id=anki.decks.DeckId(123456), name="foodeck")
 
-    note = genanki.Note(TEST_MODEL, ["a", "b"])
+    note = genanki.Note(
+        model=TEST_MODEL,
+        fields=TEST_MODEL.model_spec.fields(
+            AField="a",
+            BField="b",
+        ),
+    )
+
+    deck1.add_note(note)
+
+    with tempfile.NamedTemporaryFile(delete=True, suffix=".apkg") as tmpfile:
+        pkg = genanki.Package([deck1])
+        pkg.write_to_file(tmpfile.name)
+
+        with new_anki_collection() as col:
+            import_package(col, tmpfile.name)
+
+
+def test_multi_deck_package():
+    deck1 = genanki.Deck(deck_id=anki.decks.DeckId(123456), name="foodeck")
+    deck2 = genanki.Deck(deck_id=anki.decks.DeckId(654321), name="bardeck")
+
+    note = genanki.Note(
+        model=TEST_MODEL,
+        fields=TEST_MODEL.model_spec.fields(
+            AField="a",
+            BField="b",
+        ),
+    )
 
     deck1.add_note(note)
     deck2.add_note(note)
 
-    import_package(genanki.Package([deck1, deck2]), None)
+    with tempfile.NamedTemporaryFile(delete=True, delete_on_close=False, suffix=".apkg") as tmpfile:
+        pkg = genanki.Package([deck1, deck2])
+        pkg.write_to_file(tmpfile.name)
 
-    all_imported_decks = anki_collection.decks.all()
-    assert len(all_imported_decks) == 3  # default deck, foodeck, and bardeck
+        with new_anki_collection() as col:
+            import_package(col, tmpfile.name)
+
+        all_imported_decks = col.decks.all()
+        assert len(all_imported_decks) == 3  # default deck, foodeck, and bardeck
 
 
-def test_card_isEmpty__with_2_fields__succeeds(
-    anki_collection: AnkiCollectionFixture, import_package: ImportPackageFixture
-):
+def test_card_isEmpty__with_2_fields__succeeds():
     """Tests for a bug in an early version of genanki where notes with <4 fields were not supported."""
-    deck = genanki.Deck(anki.decks.DeckId(123456), "foodeck")
-    note = genanki.Note(TEST_MODEL, ["a", "b"])
+    deck = genanki.Deck(deck_id=anki.decks.DeckId(123456), name="foodeck")
+    note = genanki.Note(model=TEST_MODEL, fields=TEST_MODEL.model_spec.fields(AField="a", BField="b"))
     deck.add_note(note)
 
-    import_package(genanki.Package(deck), None)
+    with tempfile.NamedTemporaryFile(delete=True, delete_on_close=False, suffix=".apkg") as tmpfile:
+        pkg = genanki.Package(deck)
+        pkg.write_to_file(tmpfile.name)
 
-    anki_note: anki.notes.Note = anki_collection.get_note(
-        anki_collection.find_notes("")[0]
-    )
-    anki_card: anki.cards.Card = anki_note.cards()[0]
+        with new_anki_collection() as col:
+            import_package(col, tmpfile.name)
 
-    # test passes if this doesn't raise an exception
-    anki_card.is_empty()
+            anki_note: anki.notes.Note = col.get_note(
+                col.find_notes("")[0]
+            )
+            anki_card: anki.cards.Card = anki_note.cards()[0]
+
+            # test passes if this doesn't raise an exception
+            anki_card.is_empty()
 
 
 def test_Model_req():
@@ -295,9 +333,9 @@ def test_Model_req__with_hint():
 
 def test_notes_generate_cards_based_on_req__cn():
     # has 'Simplified' field, will generate a 'Simplified' card
-    n1 = genanki.Note(model=TEST_CN_MODEL, fields=["中國", "中国", "China"])
+    n1 = genanki.Note(model=TEST_CN_MODEL, fields=TEST_CN_MODEL.model_spec.fields(Traditional="中國", Simplified="中国", English="China"))
     # no 'Simplified' field, so it won't generate a 'Simplified' card
-    n2 = genanki.Note(model=TEST_CN_MODEL, fields=["你好", "", "hello"])
+    n2 = genanki.Note(model=TEST_CN_MODEL, fields=TEST_CN_MODEL.model_spec.fields(Traditional="你好", Simplified="", English="hello"))
 
     assert len(n1.cards) == 2
     assert n1.cards[0].ord == 0
@@ -311,11 +349,11 @@ def test_notes_generate_cards_based_on_req__with_hint():
     # both of these notes will generate one card
     n1 = genanki.Note(
         model=TEST_MODEL_WITH_HINT,
-        fields=["capital of California", "", "Sacramento"],
+        fields=TEST_MODEL_WITH_HINT.model_spec.fields(Question="capital of California", Hint="", Answer="Sacramento"),
     )
     n2 = genanki.Note(
         model=TEST_MODEL_WITH_HINT,
-        fields=["capital of Iowa", 'French for "The Moines"', "Des Moines"],
+        fields=TEST_MODEL_WITH_HINT.model_spec.fields(Question="capital of Iowa", Hint='French for "The Moines"', Answer="Des Moines"),
     )
 
     assert len(n1.cards) == 1
@@ -325,7 +363,7 @@ def test_notes_generate_cards_based_on_req__with_hint():
 
 
 def test_Note_with_guid_property():
-    class MyNote(genanki.Note):
+    class MyNote(genanki.Note[Any]):
         @property
         def guid(self):
             return "3"
@@ -335,24 +373,20 @@ def test_Note_with_guid_property():
             raise NotImplementedError
 
     # test passes if this doesn't raise an exception
-    MyNote()
+    cast(Any, MyNote)()
 
 
-def test_media_files(
-    anki_collection: AnkiCollectionFixture,
-    import_package: ImportPackageFixture,
-    check_media: CheckMediaFixture,
-):
+def test_media_files():
     # change to a scratch directory so we can write files
     os.chdir(tempfile.mkdtemp())
 
-    deck = genanki.Deck(anki.decks.DeckId(123456), "foodeck")
+    deck = genanki.Deck(deck_id=anki.decks.DeckId(123456), name="foodeck")
     note = genanki.Note(
-        TEST_MODEL,
-        [
-            "question [sound:present.mp3] [sound:missing.mp3]",
-            'answer <img src="present.jpg"> <img src="missing.jpg">',
-        ],
+        model=TEST_MODEL,
+        fields=TEST_MODEL.model_spec.fields(
+            AField="question [sound:present.mp3] [sound:missing.mp3]",
+            BField='answer <img src="present.jpg"> <img src="missing.jpg">',
+        ),
     )
     deck.add_note(note)
 
@@ -362,29 +396,31 @@ def test_media_files(
     with open("present.jpg", "wb") as h:
         h.write(VALID_JPG)
 
-    package = genanki.Package(deck, media_files=["present.mp3", "present.jpg"])
-    import_package(package, None)
+    with tempfile.NamedTemporaryFile(delete=True, delete_on_close=False, suffix=".apkg") as tmpfile:
+        package = genanki.Package(deck, media_files=["present.mp3", "present.jpg"])
+        package.write_to_file(tmpfile.name)
 
-    os.remove("present.mp3")
-    os.remove("present.jpg")
+        with new_anki_collection() as col:
+            import_package(col, tmpfile.name)
 
-    res = check_media()
-    assert set(res.missing) == {"missing.mp3", "missing.jpg"}
+            os.remove("present.mp3")
+            os.remove("present.jpg")
+
+            res = check_media(col)
+            assert set(res.missing) == {"missing.mp3", "missing.jpg"}
 
 
-def test_media_files_in_subdirs(
-    import_package: ImportPackageFixture, check_media: CheckMediaFixture
-):
+def test_media_files_in_subdirs():
     # change to a scratch directory so we can write files
     os.chdir(tempfile.mkdtemp())
 
-    deck = genanki.Deck(anki.decks.DeckId(123456), "foodeck")
+    deck = genanki.Deck(deck_id=anki.decks.DeckId(123456), name="foodeck")
     note = genanki.Note(
-        TEST_MODEL,
-        [
-            "question [sound:present.mp3] [sound:missing.mp3]",
-            'answer <img src="present.jpg"> <img src="missing.jpg">',
-        ],
+        model=TEST_MODEL,
+        fields=TEST_MODEL.model_spec.fields(
+            AField="question [sound:present.mp3] [sound:missing.mp3]",
+            BField='answer <img src="present.jpg"> <img src="missing.jpg">',
+        ),
     )
     deck.add_note(note)
 
@@ -396,32 +432,32 @@ def test_media_files_in_subdirs(
     with open("subdir2/present.jpg", "wb") as h:
         h.write(VALID_JPG)
 
-    package = genanki.Package(
-        deck, media_files=["subdir1/present.mp3", "subdir2/present.jpg"]
-    )
-    import_package(package, None)
+    with tempfile.NamedTemporaryFile(delete=True, delete_on_close=False, suffix=".apkg") as tmpfile:
+        package = genanki.Package(deck, media_files=["subdir1/present.mp3", "subdir2/present.jpg"])
+        package.write_to_file(tmpfile.name)
 
-    os.remove("subdir1/present.mp3")
-    os.remove("subdir2/present.jpg")
+        with new_anki_collection() as col:
+            import_package(col, tmpfile.name)
 
-    res = check_media()
-    assert set(res.missing) == {"missing.mp3", "missing.jpg"}
+            os.remove("subdir1/present.mp3")
+            os.remove("subdir2/present.jpg")
+
+            res = check_media(col)
+            assert set(res.missing) == {"missing.mp3", "missing.jpg"}
 
 
-def test_media_files_absolute_paths(
-    import_package: ImportPackageFixture, check_media: CheckMediaFixture
-):
+def test_media_files_absolute_paths():
     # change to a scratch directory so we can write files
     os.chdir(tempfile.mkdtemp())
     media_dir = tempfile.mkdtemp()
 
-    deck = genanki.Deck(anki.decks.DeckId(123456), "foodeck")
+    deck = genanki.Deck(deck_id=anki.decks.DeckId(123456), name="foodeck")
     note = genanki.Note(
-        TEST_MODEL,
-        [
-            "question [sound:present.mp3] [sound:missing.mp3]",
-            'answer <img src="present.jpg"> <img src="missing.jpg">',
-        ],
+        model=TEST_MODEL,
+        fields=TEST_MODEL.model_spec.fields(
+            AField="question [sound:present.mp3] [sound:missing.mp3]",
+            BField='answer <img src="present.jpg"> <img src="missing.jpg">',
+        ),
     )
     deck.add_note(note)
 
@@ -433,30 +469,33 @@ def test_media_files_absolute_paths(
     with open(present_jpg_path, "wb") as h:
         h.write(VALID_JPG)
 
-    package = genanki.Package(deck, media_files=[present_mp3_path, present_jpg_path])
-    import_package(package, None)
+    with tempfile.NamedTemporaryFile(delete=True, delete_on_close=False, suffix=".apkg") as tmpfile:
+        package = genanki.Package(deck, media_files=[present_mp3_path, present_jpg_path])
+        package.write_to_file(tmpfile.name)
 
-    res = check_media()
-    assert set(res.missing) == {"missing.mp3", "missing.jpg"}
+        with new_anki_collection() as col:
+            import_package(col, tmpfile.name)
+
+            res = check_media(col)
+            assert set(res.missing) == {"missing.mp3", "missing.jpg"}
 
 
-def test_write_deck_without_deck_id_fails(anki_collection: AnkiCollectionFixture):
+def test_write_deck_without_deck_id_fails():
     # change to a scratch directory so we can write files
     os.chdir(tempfile.mkdtemp())
 
-    deck = genanki.Deck()
-    deck.name = "foodeck"
+    deck = genanki.Deck(name="foodeck")
 
     pkg = genanki.Package(deck)
     with pytest.raises(TypeError):
         pkg.write_to_file("foodeck.apkg")
 
 
-def test_write_deck_without_name_fails(anki_collection: AnkiCollectionFixture):
+def test_write_deck_without_name_fails():
     # change to a scratch directory so we can write files
     os.chdir(tempfile.mkdtemp())
 
-    deck = genanki.Deck()
+    deck = genanki.Deck(name="foodeck")
     deck.deck_id = anki.decks.DeckId(123456)
 
     pkg = genanki.Package(deck)
@@ -465,46 +504,48 @@ def test_write_deck_without_name_fails(anki_collection: AnkiCollectionFixture):
         pkg.write_to_file("foodeck.apkg")
 
 
-def test_card_suspend(
-    anki_collection: AnkiCollectionFixture, import_package: ImportPackageFixture
-):
-    deck = genanki.Deck(anki.decks.DeckId(123456), "foodeck")
-    note = genanki.Note(model=TEST_CN_MODEL, fields=["中國", "中国", "China"], guid="foo")
+def test_card_suspend():
+    deck = genanki.Deck(deck_id=anki.decks.DeckId(123456), name="foodeck")
+    note = genanki.Note(model=TEST_CN_MODEL, fields=TEST_CN_MODEL.model_spec.fields(Traditional="中國", Simplified="中国", English="China"), guid="foo")
     assert len(note.cards) == 2
 
     note.cards[1].suspend = True
 
     deck.add_note(note)
 
-    pkg = genanki.Package(deck, id_gen=iter([1, 2, 3, 4, 5]))
+    with tempfile.NamedTemporaryFile(delete=True, delete_on_close=False, suffix=".apkg") as tmpfile:
+        pkg = genanki.Package(deck, id_gen=iter([1, 2, 3, 4, 5]))
+        pkg.write_to_file(tmpfile.name)
 
-    import_package(pkg, None)
+        with new_anki_collection() as col:
+            import_package(col, tmpfile.name)
 
-    assert anki_collection.find_cards("") == [2, 3]
-    assert anki_collection.find_cards("is:suspended") == [3]
+            assert col.find_cards("") == [2, 3]
+            assert col.find_cards("is:suspended") == [3]
 
 
-def test_deck_with_description(
-    anki_collection: AnkiCollectionFixture, import_package: ImportPackageFixture
-):
+def test_deck_with_description():
     deck = genanki.Deck(
-        anki.decks.DeckId(112233),
-        "foodeck",
+        deck_id=anki.decks.DeckId(112233),
+        name="foodeck",
         description="This is my great deck.\nIt is so so great.",
     )
-    note = genanki.Note(TEST_MODEL, ["a", "b"])
+    note = genanki.Note(model=TEST_MODEL, fields=TEST_MODEL.model_spec.fields(AField="a", BField="b"))
     deck.add_note(note)
 
-    import_package(genanki.Package(deck), None)
+    with tempfile.NamedTemporaryFile(delete=True, delete_on_close=False, suffix=".apkg") as tmpfile:
+        pkg = genanki.Package(deck)
+        pkg.write_to_file(tmpfile.name)
 
-    all_decks = anki_collection.decks.all()
-    assert len(all_decks) == 2  # default deck and foodeck
-    assert any(anki_decks["name"] == "foodeck" for anki_decks in all_decks)
+        with new_anki_collection() as col:
+            import_package(col, tmpfile.name)
+
+            all_decks = col.decks.all()
+            assert len(all_decks) == 2  # default deck and foodeck
+            assert any(anki_decks["name"] == "foodeck" for anki_decks in all_decks)
 
 
-def test_card_added_date_is_recent(
-    anki_collection: AnkiCollectionFixture, import_package: ImportPackageFixture
-):
+def test_card_added_date_is_recent():
     """
     Checks for a bug where cards were assigned the creation date 1970-01-01 (i.e. the Unix epoch).
 
@@ -515,88 +556,110 @@ def test_card_added_date_is_recent(
 
     TODO implement a fix so that this test passes.
     """
-    deck = genanki.Deck(anki.decks.DeckId(1104693946), "foodeck")
-    note = genanki.Note(TEST_MODEL, ["a", "b"])
+    deck = genanki.Deck(deck_id=anki.decks.DeckId(1104693946), name="foodeck")
+    note = genanki.Note(model=TEST_MODEL, fields=TEST_MODEL.model_spec.fields(AField="a", BField="b"))
     deck.add_note(note)
 
-    import_package(genanki.Package(deck), None)
+    with tempfile.NamedTemporaryFile(delete=True, delete_on_close=False, suffix=".apkg") as tmpfile:
+        pkg = genanki.Package(deck)
+        pkg.write_to_file(tmpfile.name)
 
-    anki_note = anki_collection.get_note(anki_collection.find_notes("")[0])
-    anki_card = anki_note.cards()[0]
+        with new_anki_collection() as col:
+            import_package(col, tmpfile.name)
 
-    assert anki_card.id > 1577836800000  # Jan 1 2020 UTC (milliseconds since epoch)
+            anki_note = col.get_note(col.find_notes("")[0])
+            anki_card = anki_note.cards()[0]
+
+            assert anki_card.id > 1577836800000  # Jan 1 2020 UTC (milliseconds since epoch)
 
 
-def test_model_with_latex_pre_and_post(
-    anki_collection: AnkiCollectionFixture, import_package: ImportPackageFixture
-):
-    deck = genanki.Deck(anki.decks.DeckId(1681249286), "foodeck")
-    note = genanki.Note(TEST_MODEL_WITH_LATEX, ["a", "b"])
+def test_model_with_latex_pre_and_post():
+    deck = genanki.Deck(deck_id=anki.decks.DeckId(1681249286), name="foodeck")
+    note = genanki.Note(model=TEST_MODEL_WITH_LATEX, fields=TEST_MODEL_WITH_LATEX.model_spec.fields(AField="a", BField="b"))
     deck.add_note(note)
 
-    import_package(genanki.Package(deck), None)
+    with tempfile.NamedTemporaryFile(delete=True, delete_on_close=False, suffix=".apkg") as tmpfile:
+        pkg = genanki.Package(deck)
+        pkg.write_to_file(tmpfile.name)
 
-    anki_note = anki_collection.get_note(anki_collection.find_notes("")[0])
-    t = anki_note.note_type()
-    assert t is not None
-    assert t["latexPre"] == CUSTOM_LATEX_PRE
-    assert t["latexPost"] == CUSTOM_LATEX_POST
+        with new_anki_collection() as col:
+            import_package(col, tmpfile.name)
+
+            anki_note = col.get_note(col.find_notes("")[0])
+
+            t = anki_note.note_type()
+            assert t is not None
+            assert t["latexPre"] == CUSTOM_LATEX_PRE
+            assert t["latexPost"] == CUSTOM_LATEX_POST
 
 
-def test_model_with_sort_field_index(
-    anki_collection: AnkiCollectionFixture, import_package: ImportPackageFixture
-):
-    deck = genanki.Deck(anki.decks.DeckId(332211), "foodeck")
-    note = genanki.Note(TEST_MODEL_WITH_SORT_FIELD_INDEX, ["a", "3.A"])
+def test_model_with_sort_field_index():
+    deck = genanki.Deck(deck_id=anki.decks.DeckId(332211), name="foodeck")
+    note = genanki.Note(model=TEST_MODEL_WITH_SORT_FIELD_INDEX, fields=TEST_MODEL_WITH_SORT_FIELD_INDEX.model_spec.fields(AField="a", BField="3.A"))
     deck.add_note(note)
 
-    import_package(genanki.Package(deck), None)
+    with tempfile.NamedTemporaryFile(delete=True, delete_on_close=False, suffix=".apkg") as tmpfile:
+        pkg = genanki.Package(deck)
+        pkg.write_to_file(tmpfile.name)
 
-    anki_note = anki_collection.get_note(anki_collection.find_notes("")[0])
-    t = anki_note.note_type()
-    assert t is not None
-    assert t["sortf"] == CUSTOM_SORT_FIELD_INDEX
+        with new_anki_collection() as col:
+            import_package(col, tmpfile.name)
 
-
-def test_notes_with_due1(
-    anki_collection: AnkiCollectionFixture, import_package: ImportPackageFixture
-):
-    deck = genanki.Deck(anki.decks.DeckId(4145273926), "foodeck")
-    deck.add_note(genanki.Note(TEST_MODEL, ["Capital of Washington", "Olympia"], due=1))
-    deck.add_note(genanki.Note(TEST_MODEL, ["Capital of Oregon", "Salem"], due=2))
-
-    import_package(genanki.Package(deck), None)
-    d = anki_collection.decks.id("foodeck")
-    assert d is not None
-    anki_collection.decks.select(d)
-    anki_collection.sched.reset()
-    next_card = anki_collection.sched.getCard()
-    assert next_card is not None
-    next_note = anki_collection.get_note(next_card.nid)
-
-    # Next card is the one with lowest due value.
-    assert next_note.fields == ["Capital of Washington", "Olympia"]
+            anki_note = col.get_note(col.find_notes("")[0])
+            t = anki_note.note_type()
+            assert t is not None
+            assert t["sortf"] == CUSTOM_SORT_FIELD_INDEX
 
 
-def test_notes_with_due2(
-    anki_collection: AnkiCollectionFixture, import_package: ImportPackageFixture
-):
+def test_notes_with_due1():
+    deck = genanki.Deck(deck_id=anki.decks.DeckId(4145273926), name="foodeck")
+    deck.add_note(genanki.Note(model=TEST_MODEL, fields=TEST_MODEL.model_spec.fields(AField="Capital of Washington", BField="Olympia"), due=1))
+    deck.add_note(genanki.Note(model=TEST_MODEL, fields=TEST_MODEL.model_spec.fields(AField="Capital of Oregon", BField="Salem"), due=2))
+
+    with tempfile.NamedTemporaryFile(delete=True, delete_on_close=False, suffix=".apkg") as tmpfile:
+        pkg = genanki.Package(deck)
+        pkg.write_to_file(tmpfile.name)
+
+        with new_anki_collection() as col:
+            import_package(col, tmpfile.name)
+
+            d = col.decks.id("foodeck")
+            assert d is not None
+
+            col.decks.select(d)
+            col.sched.reset()
+
+            next_card = col.sched.getCard()
+            assert next_card is not None
+
+            next_note = col.get_note(next_card.nid)
+
+            # Next card is the one with lowest due value.
+            assert next_note.fields == ["Capital of Washington", "Olympia"]
+
+
+def test_notes_with_due2():
     # Same as test_notes_with_due1, but we switch the due values
     # for the two notes.
-    deck = genanki.Deck(anki.decks.DeckId(4145273927), "foodeck")
-    deck.add_note(genanki.Note(TEST_MODEL, ["Capital of Washington", "Olympia"], due=2))
-    deck.add_note(genanki.Note(TEST_MODEL, ["Capital of Oregon", "Salem"], due=1))
+    deck = genanki.Deck(deck_id=anki.decks.DeckId(4145273927), name="foodeck")
+    deck.add_note(genanki.Note(model=TEST_MODEL, fields=TEST_MODEL.model_spec.fields(AField="Capital of Washington", BField="Olympia"), due=2))
+    deck.add_note(genanki.Note(model=TEST_MODEL, fields=TEST_MODEL.model_spec.fields(AField="Capital of Oregon", BField="Salem"), due=1))
 
-    import_package(genanki.Package(deck), None)
+    with tempfile.NamedTemporaryFile(delete=True, delete_on_close=False, suffix=".apkg") as tmpfile:
+        pkg = genanki.Package(deck)
+        pkg.write_to_file(tmpfile.name)
 
-    d = anki_collection.decks.id("foodeck")
-    assert d is not None
-    anki_collection.decks.select(d)
-    anki_collection.sched.reset()
-    next_card = anki_collection.sched.getCard()
-    assert next_card is not None
-    next_note = anki_collection.get_note(next_card.nid)
+        with new_anki_collection() as col:
+            import_package(col, tmpfile.name)
 
-    # Next card changes to "Capital of Oregon", because it has lower
-    # due value.
-    assert next_note.fields == ["Capital of Oregon", "Salem"]
+            d = col.decks.id("foodeck")
+            assert d is not None
+            col.decks.select(d)
+            col.sched.reset()
+            next_card = col.sched.getCard()
+            assert next_card is not None
+            next_note = col.get_note(next_card.nid)
+
+            # Next card changes to "Capital of Oregon", because it has lower
+            # due value.
+            assert next_note.fields == ["Capital of Oregon", "Salem"]
